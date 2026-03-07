@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+openai
+requests
+python-multipart
+python-dotenv
+aiofiles
+jinja2
+sqlite3
