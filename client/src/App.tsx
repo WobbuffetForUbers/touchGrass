@@ -83,12 +83,14 @@ function App() {
     }
   }, [coords])
 
-  const filteredEvents = events
-    .filter(e => filter === 'All' || e.type.toLowerCase().includes(filter.toLowerCase()))
-    .sort((a, b) => {
-      if (sortBy === 'distance') return (a.distance || 0) - (b.distance || 0)
-      return a.name.localeCompare(b.name)
-    })
+  const filteredEvents = Array.isArray(events) 
+    ? events
+      .filter(e => filter === 'All' || e.type.toLowerCase().includes(filter.toLowerCase()))
+      .sort((a, b) => {
+        if (sortBy === 'distance') return (a.distance || 0) - (b.distance || 0)
+        return a.name.localeCompare(b.name)
+      })
+    : []
 
   const focusOnEvent = (event: Event) => {
     const [lat, lon] = event.location.split(',').map(Number)
