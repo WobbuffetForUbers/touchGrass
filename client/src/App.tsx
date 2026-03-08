@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Mic, MapPin, Calendar, CheckCircle, Flame, AlertCircle, PlusCircle, Check, User as UserIcon, X, Save, Map as MapIcon, List as ListIcon, Filter, ArrowUpDown } from 'lucide-react'
+import { Mic, Flame, CheckCircle, PlusCircle, Check, User as UserIcon, X, Save, Map as MapIcon, List as ListIcon, ArrowUpDown } from 'lucide-react'
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
@@ -47,7 +47,7 @@ function App() {
   const [sortBy, setSortBy] = useState<'distance' | 'name'>('distance')
   const [feedback, setFeedback] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [isRecording, setIsRecording] = useState(false)
   const [coords, setCoords] = useState<{ lat: number, lon: number } | null>(null)
   const [mapFocus, setMapFocus] = useState<{ lat: number, lon: number } | null>(null)
   const [streak, setStreak] = useState<number>(0)
@@ -58,22 +58,25 @@ function App() {
   const audioChunksRef = useRef<Blob[]>([])
 
   useEffect(() => {
-    fetch('/user/profile')
+    fetch('/api/user/profile')
       .then(res => res.json())
-      .then(data => { setStreak(data.streak_count); setPreferences(data.preferences) })
+      .then(data => { 
+        setStreak(data.streak_count); 
+        setPreferences(data.preferences || { goal: 3, interests: [] }) 
+      })
       .catch(err => console.error("Error fetching profile:", err))
 
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-        () => { setError("Location blocked. Using default."); setCoords({ lat: 40.7812, lon: -73.9665 }) }
+        () => setCoords({ lat: 40.7812, lon: -73.9665 })
       )
     }
   }, [])
 
   useEffect(() => {
     if (coords) {
-      fetch(`/events?lat=${coords.lat}&lon=${coords.lon}`)
+      fetch(`/api/events?lat=${coords.lat}&lon=${coords.lon}`)
         .then(res => res.json())
         .then(data => setEvents(data.events))
         .catch(err => console.error("Error fetching events:", err))
@@ -94,55 +97,99 @@ function App() {
   }
 
   const startRecording = async () => {
-    setError(null); setFeedback(null)
+    setFeedback(null)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mediaRecorder = new MediaRecorder(stream)
-      mediaRecorderRef.current = mediaRecorder; audioChunksRef.current = []
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
       mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data) }
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
         await uploadAudio(audioBlob)
         stream.getTracks().forEach(t => t.stop())
       }
-      mediaRecorder.start(); setIsRecording(true)
-    } catch { setError("Microphone error.") }
+      mediaRecorder.start()
+      setIsRecording(true)
+    } catch (err) {
+      console.error("Microphone error:", err)
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+    }
   }
 
   const uploadAudio = async (blob: Blob) => {
-    setLoading(true); const formData = new FormData(); formData.append('file', blob, 'recording.webm')
+    setLoading(true)
+    const formData = new FormData()
+    formData.append('file', blob, 'recording.webm')
     try {
-      const res = await fetch('/audio/intake', { method: 'POST', body: formData })
-      const data = await res.json(); setFeedback(data.hype_man_says); setStreak(data.streak_count)
-    } catch { setError("Processing error.") } finally { setLoading(false) }
+      const res = await fetch('/api/audio/intake', { method: 'POST', body: formData })
+      const data = await res.json()
+      setFeedback(data.hype_man_says)
+      setStreak(data.streak_count)
+    } catch (err) {
+      console.error("Processing error:", err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleRSVP = async (event: Event) => {
     try {
-      const res = await fetch('/events/rsvp', {
+      const res = await fetch('/api/events/rsvp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ event_external_id: event.external_id, name: event.name, type: event.type })
       })
-      if (res.ok) { setRsvpedEvents(prev => new Set(prev).add(event.external_id)); setFeedback(`Going to ${event.name}!`) }
-    } catch { console.error("RSVP error.") }
+      if (res.ok) { 
+        setRsvpedEvents(prev => new Set(prev).add(event.external_id))
+        setFeedback(`Going to ${event.name}!`) 
+      }
+    } catch (err) {
+      console.error("RSVP error:", err)
+    }
   }
 
   if (view === 'profile') {
     return (
       <div className="app-container">
-        <header className="header"><h1>Profile</h1><button onClick={() => setView('home')} className="icon-button"><X /></button></header>
+        <header className="header">
+          <h1>Profile</h1>
+          <button onClick={() => setView('home')} className="icon-button"><X /></button>
+        </header>
         <main className="content profile-content">
-          <div className="profile-card"><div className="stat-row"><Flame color="#ff4500" /><span>{streak} Day Streak</span></div></div>
+          <div className="profile-card">
+            <div className="stat-row">
+              <Flame color="#ff4500" />
+              <span>{streak} Day Streak</span>
+            </div>
+          </div>
           <div className="settings-section">
             <label>Outing Goal (per week)</label>
-            <input type="number" value={preferences.goal} onChange={(e) => setPreferences({...preferences, goal: parseInt(e.target.value)})} />
+            <input 
+              type="number" 
+              value={preferences.goal} 
+              onChange={(e) => setPreferences({...preferences, goal: parseInt(e.target.value)})} 
+            />
             <label>Interests</label>
-            <input type="text" value={preferences.interests.join(", ")} onChange={(e) => setPreferences({...preferences, interests: e.target.value.split(",").map(i => i.trim())})} />
+            <input 
+              type="text" 
+              value={preferences.interests.join(", ")} 
+              onChange={(e) => setPreferences({...preferences, interests: e.target.value.split(",").map(i => i.trim())})} 
+            />
           </div>
           <button className="save-button" onClick={() => {
-            fetch('/user/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preferences }) })
-              .then(() => setView('home'))
+            fetch('/api/user/profile', { 
+              method: 'PUT', 
+              headers: { 'Content-Type': 'application/json' }, 
+              body: JSON.stringify({ preferences }) 
+            })
+            .then(() => setView('home'))
           }}><Save size={20} /> Save</button>
         </main>
       </div>
@@ -208,11 +255,19 @@ function App() {
           </section>
         )}
 
-        {feedback && <section className="feedback-section animate-fade-in"><div className="feedback-card"><CheckCircle size={24} color="#4ade80" /><p>{feedback}</p></div></section>}
+        {feedback && (
+          <section className="feedback-section animate-fade-in">
+            <div className="feedback-card"><CheckCircle size={24} color="#4ade80" /><p>{feedback}</p></div>
+          </section>
+        )}
       </main>
 
       <footer className="footer">
-        <button className={`record-button ${isRecording ? 'recording' : ''}`} onClick={isRecording ? stopRecording : startRecording} disabled={loading}>
+        <button 
+          className={`record-button ${isRecording ? 'recording' : ''}`} 
+          onClick={isRecording ? stopRecording : startRecording} 
+          disabled={loading}
+        >
           {loading ? <div className="spinner"></div> : <Mic size={32} color="white" />}
         </button>
       </footer>
