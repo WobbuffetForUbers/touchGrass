@@ -2,8 +2,7 @@
   "builds": [
     {
       "src": "api/index.py",
-      "use": "@vercel/python",
-      "config": { "runtime": "python3.12" }
+      "use": "@vercel/python"
     },
     {
       "src": "client/package.json",
@@ -11,16 +10,14 @@
       "config": { "distDir": "dist" }
     }
   ],
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "api/index.py"
-    }
-  ],
   "routes": [
     {
       "src": "/api/(.*)",
       "dest": "api/index.py"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "client/assets/$1"
     },
     {
       "src": "/(.*)",
