@@ -16,7 +16,7 @@ import requests
 load_dotenv()
 
 # Local imports
-from models import Base, User, Event, Log, RSVP
+from .models import Base, User, Event, Log, RSVP, UserFact
 
 # App setup
 app = FastAPI(title="touchGrass - AI Hype Man")
