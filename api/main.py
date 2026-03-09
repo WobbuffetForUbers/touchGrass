@@ -226,17 +226,17 @@ def update_streak(user: User, db: Session):
 
 # --- API Endpoints ---
 
-@app.get("/")
+@app.get("/api")
 async def root():
     return {"message": "Welcome to touchGrass! Go outside and report back."}
 
-@app.get("/events")
+@app.get("/api/events")
 async def get_events(lat: float = 40.7812, lon: float = -73.9665, db: Session = Depends(get_db)):
     """Fetch real-time parks and gardens nearby based on coordinates."""
     events = await event_aggregator.get_local_events(lat=lat, lon=lon, db=db)
     return {"location": f"{lat},{lon}", "events": events}
 
-@app.post("/events/rsvp")
+@app.post("/api/events/rsvp")
 async def rsvp_to_event(req: RSVPRequest, db: Session = Depends(get_db)):
     user = get_or_create_default_user(db)
     event = db.query(Event).filter(Event.external_id == req.event_external_id).first()
@@ -255,7 +255,7 @@ async def rsvp_to_event(req: RSVPRequest, db: Session = Depends(get_db)):
     
     return {"status": "success", "message": f"Sweet! We've got you down for {event.name}. See you out there!"}
 
-@app.post("/audio/intake")
+@app.post("/api/audio/intake")
 async def process_audio(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Receive audio, recall memory, generate feedback, and store new facts."""
     try:
@@ -264,8 +264,7 @@ async def process_audio(file: UploadFile = File(...), db: Session = Depends(get_
         # 1. Save audio file
         file_extension = file.filename.split(".")[-1]
         unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        upload_path = f"uploads/{unique_filename}"
-        os.makedirs("uploads", exist_ok=True)
+        upload_path = f"/tmp/{unique_filename}"
         
         with open(upload_path, "wb") as buffer:
             buffer.write(await file.read())
@@ -298,6 +297,45 @@ async def process_audio(file: UploadFile = File(...), db: Session = Depends(get_
             audio_path=upload_path,
             transcript="Audio processed by Hype Man",
             llm_response=feedback_text
+        )
+        db.add(new_log)
+        db.commit()
+        
+        return {
+            "status": "success",
+            "hype_man_says": feedback_text,
+            "streak_count": new_streak
+        }
+    except Exception as e:
+        print(f"Server error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/user/stats")
+async def get_stats(db: Session = Depends(get_db)):
+    user = get_or_create_default_user(db)
+    return {
+        "streak_count": user.streak_count,
+        "last_log": user.last_log_date
+    }
+
+@app.get("/api/user/profile")
+async def get_profile(db: Session = Depends(get_db)):
+    user = get_or_create_default_user(db)
+    return {
+        "username": user.username,
+        "streak_count": user.streak_count,
+        "preferences": user.preferences or {"goal": 3, "interests": []},
+        "last_log_date": user.last_log_date
+    }
+
+@app.put("/api/user/profile")
+async def update_profile(req: ProfileUpdate, db: Session = Depends(get_db)):
+    user = get_or_create_default_user(db)
+    from sqlalchemy.orm.attributes import flag_modified
+    user.preferences = req.preferences
+    flag_modified(user, "preferences")
+    db.commit()
+    return {"status": "success", "preferences": user.preferences}
         )
         db.add(new_log)
         db.commit()
